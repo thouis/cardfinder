@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 from scipy.ndimage.filters import median_filter
+import os.path
 
 def open_camera():
     camera = cv2.VideoCapture()
@@ -38,14 +39,10 @@ def find_cards():
 
     while True:
         im = getframe(camera)
-        cv2.imshow("raw video", im)
-
         diff = abs(im.astype(np.float32) - background.astype(np.float32)).astype(np.uint8)
         cv2.imshow("difference image", diff)
 
         l, h, m = kmeans(diff, diff.min(), diff.max())
-        cv2.imshow("kmeans", (255.0 * m).astype(np.uint8))
-
         contours, hierarchy = cv2.findContours(255 * m.astype(np.uint8), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         area_idx = [(cv2.contourArea(i), idx) for idx, i in enumerate(contours)]
         area_idx.sort()
@@ -54,9 +51,6 @@ def find_cards():
 
         box = cv2.cv.BoxPoints(rect)
         box = np.int0(box)
-        tmp = diff.copy()
-        cv2.drawContours(tmp, [box], 0, 255, 2)
-        cv2.imshow("box", tmp)
 
         # make first edge short
         short = np.linalg.norm(box[0, :] - box[1, :])
@@ -98,8 +92,16 @@ def find_cards():
         NEW_CARD_THRESHOLD = 20
         if (not have_taken) and (np.median(prev_diff) <= STABLE_THRESHOLD):
             have_taken = True
-            cv2.imshow("rotated", rotated)
-            print "SNAP"
+            while os.path.exists("card_%05d.png" % image_idx): image_idx += 1
+            cv2.imwrite("card_%05d.png" % image_idx, rotated)
+            image_idx += 1
+
+            prev_images.append(rotated)
+            prev_images = prev_images[-5:]
+            stack_height = max(p.shape[0] for p in prev_images)
+            prev_stack = np.hstack([np.pad(p, ((0, stack_height - p.shape[0]), (0, 0)), 'constant') for p in prev_images])
+            cv2.imshow("captures", prev_stack)
+
         elif have_taken and (np.median(prev_diff) > NEW_CARD_THRESHOLD):
             have_taken = False
         previous_snapshot = small_rot
