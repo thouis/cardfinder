@@ -5,18 +5,18 @@ import os.path
 
 def open_camera():
     camera = cv2.VideoCapture()
-    camera.open(1)
+    camera.open(0)
     return camera
 
 def center_subwindow(im, sz):
-    start = [(d - sz) / 2 for d in im.shape]
+    start = [(d - sz) / 2 for d in im.shape[:2]]
     return im[[slice(st, (st + sz)) for st in start]]
 
 
 def getframe(camera):
     status, im = camera.read()
     assert status, "Error reading image %d" % status
-    return center_subwindow(cv2.cvtColor(im, cv2.COLOR_BGR2GRAY), 500)
+    return center_subwindow(im, 500)
 
 def kmeans(data, lo, hi, iter=20):
     for i in range(iter):
@@ -29,7 +29,7 @@ def kmeans(data, lo, hi, iter=20):
 
 def find_cards():
     camera = open_camera()
-    background = getframe(camera)
+    background = cv2.cvtColor(getframe(camera), cv2.COLOR_BGR2GRAY)
     kernel = np.ones((5,5),np.uint8)
 
     have_taken = False
@@ -38,7 +38,8 @@ def find_cards():
     prev_images = []
 
     while True:
-        im = getframe(camera)
+        im_color = getframe(camera)
+        im = cv2.cvtColor(im_color, cv2.COLOR_BGR2GRAY)
         diff = abs(im.astype(np.float32) - background.astype(np.float32)).astype(np.uint8)
         cv2.imshow("difference image", diff)
 
@@ -62,7 +63,7 @@ def find_cards():
         keypress = cv2.waitKey(100)
         if keypress == ord('r'):
             print "reaquire"
-            background = getframe(camera)
+            background = cv2.cvtColor(getframe(camera), cv2.COLOR_BGR2GRAY)
             continue
         elif keypress == ord('q'):
             camera.release()
@@ -80,6 +81,7 @@ def find_cards():
                                                [short, 0],
                                                [short, long]], np.float32))
         rotated = cv2.warpAffine(im, mat, (int(short), int(long)), flags=cv2.INTER_LINEAR)
+        color_rotated = cv2.warpAffine(im_color, mat, (int(short), int(long)), flags=cv2.INTER_LINEAR)
 
         small_rot = cv2.resize(rotated, (56, 81))
 
@@ -93,13 +95,13 @@ def find_cards():
         if (not have_taken) and (np.median(prev_diff) <= STABLE_THRESHOLD):
             have_taken = True
             while os.path.exists("card_%05d.png" % image_idx): image_idx += 1
-            cv2.imwrite("card_%05d.png" % image_idx, rotated)
+            cv2.imwrite("card_%05d.png" % image_idx, color_rotated)
             image_idx += 1
 
-            prev_images.append(rotated)
+            prev_images.append(color_rotated)
             prev_images = prev_images[-5:]
             stack_height = max(p.shape[0] for p in prev_images)
-            prev_stack = np.hstack([np.pad(p, ((0, stack_height - p.shape[0]), (0, 0)), 'constant') for p in prev_images])
+            prev_stack = np.hstack([np.pad(p, ((0, stack_height - p.shape[0]), (0, 0), (0,0)), 'constant') for p in prev_images])
             cv2.imshow("captures", prev_stack)
 
         elif have_taken and (np.median(prev_diff) > NEW_CARD_THRESHOLD):
